@@ -1,0 +1,374 @@
+---
+title: "Functions"
+author: "Astrid Nørgaard Fonager & Melina Nielsen"
+date: "5/15/2020"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+library(pacman)
+pacman::p_load(tidyverse) 
+```
+
+
+```{r MakePair; meeting other agents }
+
+MakePair <- function(N, crime, socio_status){
+  CrimeV <- c(0,1,2,3) 
+  SESV <- c(1,2,3)
+  CrimeSame <-  rbinom(n = N, size = 1, prob = .75)
+  SESSame <-  rbinom(n = N, size = 1, prob = .75) 
+  Agent2Meet <- data.frame(Crime=rep(NA,N), SES=rep(NA,N), ID = rep(NA, N))
+  Agents <- data.frame(ID = 1:N, crime, socio_status)
+  
+  for (a in 1:N){
+    
+    # If not same sample a different value of crime and ses
+    Agent2Meet$Crime[a] = ifelse(CrimeSame[a]==1, Agents$crime[a], sample(CrimeV[CrimeV != Agents$crime[a]], 1))
+    Agent2Meet$SES[a] = ifelse(SESSame[a]==1, Agents$socio_status[a], sample(SESV[SESV != Agents$socio_status[a]], 1))
+    
+    # Identify possible meetable agents and sample 1 from that
+    MeetableAgents <- subset(Agents, crime == Agent2Meet$Crime[a] & socio_status == Agent2Meet$SES[a])
+    if (nrow(MeetableAgents)>0){
+      Agent2Meet$ID[a] <- sample(MeetableAgents$ID, 1)
+    } else {
+      MeetableAgentsElse <- subset(Agents, crime == Agent2Meet$Crime[a])
+      Agent2Meet$ID[a] <- sample(MeetableAgentsElse$ID, 1)
+    }
+    
+  }
+  
+  Pairs <- data.frame(A = Agents$ID, B = Agent2Meet$ID)
+  return(Pairs)
+}
+
+
+```
+
+
+```{r Influence; updating contagious scores }
+
+Influence <- function(N, pairs, inf_prob, contageous_score){
+  # determine influence from partner
+  for(n in 1:N){
+    pairs$randNumber[n] <- runif(1, max = 1, min = 0)
+    if(pairs$randNumber[n] > inf_prob[n]){
+      pairs$influence[n] <- "no" 
+    } else{
+        pairs$influence[n] <- "yes"
+      }
+    
+    PartnerID <- pairs$B[pairs$A == n]
+    PartnerCont <- contageous_score$Score[PartnerID == contageous_score$ID]
+    OwnCont <- contageous_score$Score[n == contageous_score$ID]
+    
+    if (pairs$influence[n] == "yes") {
+      if (PartnerCont == OwnCont){
+        cont_score <- OwnCont + 0
+      }
+      if (PartnerCont > OwnCont){
+        cont_score <- OwnCont + .5
+      }
+      if (PartnerCont < OwnCont){
+        if((OwnCont - PartnerCont) <= 1) {
+          cont_score <- OwnCont + 0 
+        } else {
+          cont_score <- OwnCont - .5
+          } 
+      }    
+    }
+    if (pairs$influence[n] == "no") {
+      cont_score <- OwnCont
+    }
+   
+     # update scores
+    contageous_score$Score[n] <- cont_score
+  }
+  
+  return(contageous_score)
+}
+
+```
+
+
+```{r risk factor distributions at baseline }
+
+# CONTAGIOUS
+crimefun <- function(N){
+  crime <- array(0, N)
+  crime[1:N] <- sample(c(rep(0, N*0.95),
+                rep(1, N*0.025),
+                rep(2, N*0.017),
+                rep(3, N*0.008)))
+ return(crime)
+}
+
+hostfun <- function(N){
+  hostility <- array(0, N) 
+  hostility[1:N] <- sample(c(rep(0, N*0.9),
+                    rep(1, N*0.08),
+                    rep(2, N*0.015), 
+                    rep(3, N*0.005)))
+  return(hostility)
+}
+
+subfun <- function(N){
+  substance_abuse <- array(0, N) 
+  substance_abuse[1:N] <- sample(c(rep(0, N*0.82), 
+               rep(1, (N*0.18)/3),
+               rep(2, (N*0.18)/3), 
+               rep(3, (N*0.18)/3)))
+  return(substance_abuse)
+}
+
+
+# NON-CONTAGIOUS
+SESfun <- function(N){
+  socio_status <- array(0, N) 
+  socio_status[1:N] <- sample(c(rep(1, N*0.16),
+                rep(2, N*0.69), 
+                rep(3, N*0.15)))
+  return(socio_status)
+}
+
+abusefun <- function(N){
+  self_abuse <- array(0, N) 
+  self_abuse[1:N] <- sample(c(rep(0, N*0.82),
+               rep(1, (N*0.18)/3),
+               rep(2, (N*0.18)/3), 
+               rep(3, (N*0.18)/3)))
+  return(self_abuse)
+}
+
+psychfun <- function(N){
+  psych <- array(0, N) 
+  psych[1:N] <- sample(c(rep(0, N*0.9),
+             rep(1, (N*0.1)/3),
+             rep(2, (N*0.1)/3), 
+             rep(3, (N*0.1)/3), replace = TRUE))
+  return(psych)
+}
+
+
+```
+
+
+```{r risk factor distributions; manipulated models }
+
+# # 1: CRIME ALTERED #
+# crimefun <- function(N){
+#   crime <- array(0, N)
+#   crime[1:N] <- sample(c(rep(0, N*0.96),
+#                        rep(1, N*0.02),
+#                        rep(2, N*0.014),
+#                        rep(3, N*0.006)))
+#  return(crime)
+# }
+# 
+# 
+# #  2: HOSTILITY ALTERED #
+# hostfun <- function(N){
+#   hostility <- array(0, N)
+#   hostility[1:N] <-sample(c(rep(0, N*0.92),
+#                     rep(1, N*0.064),
+#                     rep(2, N*0.012),
+#                     rep(3, N*0.004)))
+#   return(hostility)
+# }
+# #
+# 
+# 3: SUBSTANCE ABUSE ALTERED #
+# subfun <- function(N){
+#   substance_abuse <- array(0, N)
+#   substance_abuse[1:N] <-  sample(c(rep(0, N*0.856),
+#                rep(1, (N*0.144)/3),
+#                rep(2, (N*0.144)/3),
+#                rep(3, (N*0.144)/3)))
+#   return(substance_abuse)
+# }
+# 
+# 
+# 4: SES ALTERED #
+# SESfun <- function(N){
+#   socio_status <- array(0, N)
+#   socio_status[1:N] <- sample(c(rep(1, N*0.16),
+#                 rep(2, N*0.72),
+#                 rep(3, N*0.12)))
+#   return(socio_status)
+# }
+# 
+# # 5: CHILD ABUSE ALTERED #
+# abusefun <- function(N){
+#   self_abuse <- array(0, N)
+#   self_abuse[1:N] <- sample(c(rep(0, N*0.856),
+#                rep(1, (N*0.144)/3),
+#                rep(2, (N*0.144)/3),
+#                rep(3, (N*0.144)/3)))
+#   return(self_abuse)
+# }
+# 
+# 6: PSYCH ALTERED #
+# psychfun <- function(N){
+#   psych <- array(0, N)
+#   psych[1:N] <- sample(c(rep(0, N*0.92),
+#                          rep(1, N*0.027),
+#                          rep(2, N*0.027),
+#                          rep(3, N*0.026, replace = TRUE)))
+#   return(psych)
+# }
+
+```
+
+
+```{r SimulationFunction; run the model }
+
+SimulationFunction <- function(N, rounds, Nsims){
+  
+  final_df <- data.frame()
+
+  
+  for(simses in 1:Nsims){
+  
+    ## set arrays and characteristics at trial 1 ##
+    Abuse_status <- array(0, c(N, rounds))
+    Relationship_status <- array(0, c(N, rounds))
+    relationship_length <-array(0, c(N, rounds))
+    
+    contageous_score <- data.frame(ID = 1:N, Score = rep(NA, N))
+    NONcontageous_score <- array(0, N)
+    sum_score <- array(0, c(N,rounds))
+    inf_prob <- array(0, c(N,rounds))
+    CrimeSame <- array(0, N)
+    SESSame <- array(0, N)
+    
+    # set scores
+    crime <- crimefun(N)
+    hostility <- hostfun(N)
+    substance_abuse <- subfun(N)
+    socio_status <- SESfun(N)
+    psych <- psychfun(N)
+    self_abuse <- abusefun(N)
+  
+      
+  ## ROUND 1 ##
+    for (i in 1:N){
+      # characteristic scores
+      contageous_score[i,2] <- crime[i] + hostility[i] + substance_abuse[i]
+      NONcontageous_score[i] <- socio_status[i] + self_abuse[i] + psych[i]
+      sum_score[i] <- contageous_score[i,2] + NONcontageous_score[i]
+      inf_prob[i] <- sum_score[i]/18
+
+      
+      # relationship and abuse
+      Relationship_status[i] <- sample(rbinom(N, 1, 0.46),1)
+      if (Relationship_status[i] == 1){
+        relationship_length[i] <- 1
+        if (sum_score[i] == 18){
+         Abuse_status[i] <- sample(rbinom(N, size = 1, prob = .9), 1)
+        }
+        if (sum_score[i] >= 12 & sum_score[i] < 18) {
+          Abuse_status[i] <- sample(rbinom(N, size = 1, prob = .6), 1)
+        }
+        if (sum_score[i] >= 6 & sum_score[i]< 12) {
+          Abuse_status[i] <- sample(rbinom(N, size = 1, prob = .25), 1)
+        }
+        if (sum_score[i] < 6) {
+          Abuse_status[i] <- sample(rbinom(N, size = 1, prob = .05), 1)
+        }
+      }
+      if (Relationship_status[i] == 0){
+        relationship_length[i] <- 0
+      }
+    }
+    
+    cs_SAVE <- contageous_score
+  
+    ## SUBSEQUENT ROUNDS ##
+    
+    for (trial in 2:rounds){
+      # MEET PARTNER, MAKE PAIR
+      pairs <- MakePair(N, crim = crime, socio_status = socio_status)
+      # determine influence from partner
+      contageous_score <- Influence(N, pairs = pairs, inf_prob = inf_prob, contageous_score = contageous_score)
+      
+      for (n in 1:N){
+        # update scores
+        sum_score[n,trial] <- contageous_score$Score[n] + NONcontageous_score[n]
+        inf_prob[n,trial] <- sum_score[n,trial]/18
+      }
+    
+    # relationship and abuse
+      for (agent in 1:N){
+        if (Relationship_status[agent, trial-1] == 0) {
+          RS <- sample(rbinom(N, 1, 0.46), 1)
+          if (RS == 0){
+            AS <- 0
+            RL <- 0
+          }
+          else {
+            RL <- 1
+          }
+        }  
+        
+        if (Relationship_status[agent,trial-1] == 1) {
+          rNum <- sample(rnorm(N, 18, 18), 1)
+          if (rNum > relationship_length[agent, trial-1]){
+            RS <- 1
+            RL <- relationship_length[agent, trial-1] + 1
+          }
+          if(rNum < relationship_length[agent, trial-1]){
+            RS <- 0
+            RL <- 0
+          }
+        }
+          
+        # - relationship
+        if(RS == 0) {
+          AS <- 0
+          RL <- 0
+        } # if no current relationship --> no abuse
+        
+        # + relationship
+        if(RS == 1) {
+          if(Abuse_status[agent,trial-1] == 1) {
+            AS <- 1
+          }
+          if(Abuse_status[agent, trial-1] == 0) {
+            if (sum_score[agent,trial] == 18){
+              AS <- sample(rbinom(N, size = 1, prob = .9), 1)
+            }
+            if (sum_score[agent,trial] >= 12 & sum_score[agent,trial] < 18) {
+             AS <- sample(rbinom(N, size = 1, prob = .6), 1)
+            }
+            if (sum_score[agent,trial] >= 6 & sum_score[agent, trial] < 12) {
+              AS <- sample(rbinom(N, size = 1, prob = .25), 1)
+            }
+            if (sum_score[agent,trial] < 6) {
+              AS <- sample(rbinom(N, size = 1, prob = .05), 1)
+            }
+          }
+
+        }
+        
+        # update arrays
+        Abuse_status[agent, trial] <- AS
+        Relationship_status[agent, trial] <- RS
+        relationship_length[agent, trial] <- RL
+      }
+    }
+    
+    abuseSim <- as.data.frame(Abuse_status)
+    abuseSim$SimNo <- simses
+    abuseSim$Manipulation <- "psych"
+    abuseSim <- select(abuseSim, Manipulation, SimNo, everything())
+
+    contSim <- cbind(cs_SAVE, contageous_score)
+    semifinal_df <- cbind(contSim, abuseSim)
+    
+    final_df <- rbind(final_df, semifinal_df)
+  }
+  return(final_df)
+}
+
+```
+

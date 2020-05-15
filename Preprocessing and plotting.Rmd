@@ -1,0 +1,170 @@
+---
+title: "Preprocessing and plotting"
+author: "Astrid Nørgaard Fonager & Melina Nielsen"
+date: "5/15/2020"
+output: html_document
+---
+
+
+```{r setup, include=FALSE}
+library(pacman, RcolorBrewer)
+p_load(ggplot2, tidyverse, plyr, scales, ggthemes, patchwork) 
+```
+
+
+```{r gather data in one file }
+
+BASE <- read_csv("Data/BASELINE_simulation.csv")
+
+CRIME <- read_csv("Data/CRIME_simulation.csv")
+
+SUBSTANCE <- read_csv("Data/SUBSTANCE_simulation.csv")
+
+HOSTILITY <- read_csv("Data/HOSTILITY_simulation.csv")
+
+SES <- read_csv("Data/SES_simulation.csv")
+SES$Manipulation <- ifelse(SES$Manipulation == "ses", "SES", SES$Manipulation)
+
+CHILD <- read_csv("Data/CHILD_ABUSE_simulation.csv")
+
+PSYCH<- read_csv("Data/PSYCH.csv")
+PSYCH$Manipulation <- ifelse(PSYCH$Manipulation == "psych", "Psychiatric_disorder", PSYCH$Manipulation)
+
+data <- rbind(BASE, CRIME)
+data <- rbind(data, HOSTILITY)
+data <- rbind(data, SES)
+data <- rbind(data, CHILD) 
+data <- rbind(data, PSYCH)
+data <- rbind(data, SUBSTANCE)
+
+data$ID_1 <- NULL
+data <- plyr::rename(data, c("Score" = "start_contagious", "Score_1" = "end_contagious"))
+data %>% write_csv("Data/all_data.csv") 
+
+```
+
+
+```{r get data }
+data <- read_csv("Data/all_data.csv")
+```
+
+
+```{r dataframe manipulations for IPV rates }
+
+# long format
+data_long <- tidyr::gather(data, round, Abuse, V1:V100, factor_key = TRUE) %>% 
+  group_by(Manipulation, round) %>% 
+  dplyr::summarize(Abuse_sum = sum(Abuse))
+
+# round as numeric
+data_long$round <- as.numeric(data_long$round)
+
+# Abuse in percentages
+data_long$proportion <- (data_long$Abuse_sum/100000)*100
+
+# subset for round 100
+Round_100_No <- select(data, ID, Manipulation, SimNo, V100) %>%
+  group_by(Manipulation, SimNo) %>%
+  summarise(Abuse_100 = sum(V100))
+Round_100_No$Proportion <- Round_100_No$Abuse_100 / 1000 *100
+Round_100_No %>%
+  group_by(Manipulation) %>%
+  summarise(mean(Proportion), sd(Proportion))
+
+```
+
+
+```{r dataframe manipulations for contagious scores }
+
+# getting means, sd's, max values and median for 1st and 100th round
+a <- data %>% 
+  dplyr::group_by(Manipulation) %>% 
+  dplyr::summarise(start = mean(start_contagious), start_sd = sd(start_contagious), end = mean(end_contagious), end_sd = sd(end_contagious), max_end = max(end_contagious), median_start = median(start_contagious))
+
+# difference in contagious scores from round 1 to 100
+a$diff <- a$end-a$start
+
+a$diff_percent <- (a$diff/a$start)*100
+
+# difference from baseline
+a$diff_from_base <- 0
+for(i in 2:7){
+  a$diff_from_base[i] <- (a[i,7]-a[1,7])/a[1,7]*100
+}
+
+# labeling condition
+a$condition <- ifelse(str_detect(a$Manipulation, "Baseline") == "TRUE", "1) Baseline", 0)
+
+a$condition <- ifelse(str_detect(a$Manipulation, "SES") == "TRUE" | str_detect(a$Manipulation, "Psychiatric_disorder") == "TRUE" | str_detect(a$Manipulation, "Child_abuse") == "TRUE", "2) Non-contagious", a$condition)
+
+a$condition <- ifelse(str_detect(a$Manipulation, "Hostility") == "TRUE" | str_detect(a$Manipulation, "Substance_abuse") == "TRUE" | str_detect(a$Manipulation, "Crime") == "TRUE", "3) Contagious", a$condition)
+
+```
+
+
+```{r plotting IPV rates }
+
+# plot
+ggplot(data_long, aes(round, proportion)) +
+  geom_line(aes(color = Manipulation)) +
+  theme_stata() +
+  scale_color_economist() +
+  labs(title ="IPV rates", x = " Round", y = "Number of abusers in %") +
+  theme(plot.title = element_text(face = "bold", size = 16, hjust=0.5))
+
+
+```
+
+
+```{r plotting contagious scores }
+
+## Difference plot ##
+
+a %>% 
+  dplyr::mutate(Manipulation = factor(Manipulation, levels = c("Baseline", "SES", "Psychiatric_disorder", "Child_abuse" ,"Crime", "Substance_abuse", "Hostility"))) %>% 
+  ggplot(aes(Manipulation, diff, fill = Manipulation)) +
+  geom_col(width=.3) +
+  coord_cartesian(ylim=c(2, 2.8)) +
+  scale_y_continuous(name = "Difference", breaks=seq(2, 2.8, 0.1)) +
+  facet_wrap(.~condition,  scales="free") +
+  theme_stata() +
+  scale_fill_economist() +
+  labs(title ="Difference in contagious scores from round 1 to round 100") +
+  theme(plot.title = element_text(face = "bold", size = 16, hjust=0.5), 
+        axis.text.x = element_text(angle=-40),
+        legend.position = "none",
+        axis.title.x = element_blank())
+
+## Distributions plots ##
+
+#start scores
+p <- data %>% group_by(Manipulation, start_contagious) %>% dplyr::summarise(No=n())
+p$prop <- p$No/100000
+
+p_plot <- ggplot(data = p, aes(x= start_contagious, y = prop)) +
+  geom_line(color="cadetblue4") +
+  geom_point(color="turquoise4") +
+  facet_wrap(.~Manipulation) +
+  theme_stata() +
+  labs(title =" Contagious score distribution at round 1", x = " Score ", y = "Proportion of agents") +
+  theme(plot.title = element_text(face = "bold", size = 16, hjust=0.5))
+
+
+# end scores
+pp <- data %>% group_by(Manipulation, end_contagious) %>% dplyr::summarise(No=n())
+pp$prop <- pp$No/100000
+
+pp_plot <- ggplot(data = pp, aes(x= end_contagious, y = prop)) +
+  geom_line(color="cadetblue4") +
+  geom_point(color="turquoise4") +
+  facet_wrap(.~Manipulation) +
+  theme_stata() +
+  labs(title =" Contagious score distribution at round 100", x = " Score ", y = "Proportion of agents") +
+  theme(plot.title = element_text(face = "bold", size = 16, hjust=0.5))
+
+
+p_plot + pp_plot
+
+
+```
+
